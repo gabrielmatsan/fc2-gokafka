@@ -1,27 +1,35 @@
 package main
 
 import (
-	"fmt"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"log"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
 func main() {
 	configMap := &kafka.ConfigMap{
-		"bootstrap.servers": "gokafka_kafka_1:9092",
+		"bootstrap.servers": "fc2-gokafka-kafka-1:9092",
 		"client.id":         "goapp-consumer",
-		"group.id":          "goapp-group2",
+		"group.id":       "goapp-group",
 		"auto.offset.reset": "earliest",
 	}
+
 	c, err := kafka.NewConsumer(configMap)
 	if err != nil {
-		fmt.Println("error consumer", err.Error())
+		log.Println("Failed to create consumer:", err.Error())
+		panic(err)
 	}
-	topics := []string{"teste"}
-	c.SubscribeTopics(topics, nil)
+
+	topic := []string{"novo-teste"}
+
+	c.SubscribeTopics(topic, nil)
+
 	for {
 		msg, err := c.ReadMessage(-1)
+
 		if err == nil {
-			fmt.Println(string(msg.Value), msg.TopicPartition)
+			log.Printf("Message on %s: %s\n", msg.TopicPartition, string(msg.Value))
 		}
 	}
+
 }

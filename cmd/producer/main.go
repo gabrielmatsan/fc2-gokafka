@@ -1,68 +1,92 @@
 package main
 
 import (
-	"fmt"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"log"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
 func main() {
-	deliveryChan := make(chan kafka.Event)
-	producer := NewKafkaProducer()
-	Publish("transferiu", "teste", producer, []byte("transferecia2"), deliveryChan)
-	DeliveryReport(deliveryChan) // async
+	deliveryChannel := make(chan kafka.Event)
+	producer, err := NewKafkaProducer()
 
+	if err != nil {
+		log.Println("Failed to create producer:", err.Error())
+		return
+	}
 
+	for i := 0; i < 10; i++ {
+		Publish("transferiu", "novo-teste", producer, []byte("transferencia"), deliveryChannel)
+	}
 
-	//e := <-deliveryChan
-	//msg := e.(*kafka.Message)
-	//if msg.TopicPartition.Error != nil {
-	//	fmt.Println("Erro ao enviar")
-	//} else {
-	//	fmt.Println("Mensagem enviada:", msg.TopicPartition)
-	//}
-	//
+	go DeliveryReport(deliveryChannel) //async
 
+	producer.Flush(1000)
+	// Wait for all messages to be delivered
 }
 
-func NewKafkaProducer() *kafka.Producer {
+// Cria um novo producer Kafka
+func NewKafkaProducer() (*kafka.Producer, error) {
 	configMap := &kafka.ConfigMap{
-		"bootstrap.servers":   "gokafka_kafka_1:9092",
+		"bootstrap.servers":   "fc2-gokafka-kafka-1:9092",
 		"delivery.timeout.ms": "0",
 		"acks":                "all",
-		"enable.idempotence":  "true",
+		"enable.idempotence":  "true", // por padrão é false
 	}
-	p, err := kafka.NewProducer(configMap)
+
+	producer, err := kafka.NewProducer(configMap)
+
 	if err != nil {
-		log.Println(err.Error())
+		log.Println("Failed to create producer:", err.Error())
+		return nil, err
 	}
-	return p
+
+	return producer, nil
 }
 
-func Publish(msg string, topic string, producer *kafka.Producer, key []byte, deliveryChan chan kafka.Event) error {
-	message := &kafka.Message{
-		Value:          []byte(msg),
-		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-		Key:            key,
+// Publica uma mensagem no Kafka
+func Publish(
+	message string,
+	topic string,
+	producer *kafka.Producer,
+	key []byte,
+	deliveryChannel chan kafka.Event) error {
+
+	msg := &kafka.Message{
+		Value: []byte(message),
+		TopicPartition: kafka.TopicPartition{
+			Topic:     &topic,
+			Partition: kafka.PartitionAny,
+		},
+		Key: key,
 	}
-	err := producer.Produce(message, deliveryChan)
+
+	err := producer.Produce(msg, deliveryChannel)
+
 	if err != nil {
+		log.Println("Failed to produce message:", err.Error())
 		return err
 	}
 	return nil
 }
 
-func DeliveryReport(deliveryChan chan kafka.Event) {
-	for e := range deliveryChan {
+func DeliveryReport(deliveryChannel chan kafka.Event) {
+	for e := range deliveryChannel {
 		switch ev := e.(type) {
 		case *kafka.Message:
 			if ev.TopicPartition.Error != nil {
-				fmt.Println("Erro ao enviar")
+				log.Printf("Failed to deliver message: %v\n", ev.TopicPartition.Error)
 			} else {
-				fmt.Println("Mensagem enviada:", ev.TopicPartition)
-				// anotar no banco de dados que a mensagem foi processado.
-				// ex: confirma que uma transferencia bancaria ocorreu.
+				// poderiamos anotar no banco de dados que a mensagem foi entregue
+				// ou fazer qualquer outra coisa
+				log.Printf("Message delivered to %v [%d] at offset %v\n",
+					*ev.TopicPartition.Topic,
+					ev.TopicPartition.Partition,
+					ev.TopicPartition.Offset)
 			}
+		default:
+			log.Printf("Ignored event: %s\n", ev)
+
 		}
 	}
 }
